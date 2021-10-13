@@ -6,12 +6,18 @@
 #include<stdlib.h>
 #include<pwd.h>
 #include<grp.h>
-#include<filesystem>
+#include<experimental/filesystem>
 #include<termios.h>
+#include<cstddef>
+#include<fstream>
 using namespace std;
 
 vector<int> isFile;
 vector<string> currentDir;
+stack<string> back, Forward;
+
+void normal_mode(string);
+void command_mode();
 
 void listFiles(string dirname){
     isFile.clear();
@@ -29,7 +35,8 @@ void listFiles(string dirname){
     entity = readdir(dir);
     while (entity!=NULL) {
         isFile.push_back((entity->d_type)/4 - 1);
-        currentDir.push_back(entity->d_name);
+        string nameWithPath = dirname + entity->d_name;
+        currentDir.push_back(nameWithPath);
         entity = readdir(dir);
     }
 
@@ -117,18 +124,20 @@ string getFileCreationTime(string sfile)
 }
 
 void printdetails(string s, int isFile) {
-    string s1;
-    if(s.length()>20)
-        s1=s.substr(0, 17)+'.'+'.'+'.';
+    string s1, s2;
+    int pos = s.find_last_of('/');
+    s2 = s.substr(pos + 1);
+    if(s2.length()>20)
+        s1=s2.substr(0, 17)+'.'+'.'+'.';
     else
-        s1=s;
+        s1=s2;
     char f;
     if(isFile==1)
         f='-';
     else
         f='d';
-    cout<<s1<<"\t"<<f<<permissions(s)<<"\t"<<ownerName(s)<<" "<<groupName(s);
-    cout<<"\t"<<fixed<<setprecision(2)<<filesize(s)<<"K\t"<<getFileCreationTime(s);
+    cout<<f<<permissions(s)<<"\t"<<ownerName(s)<<" "<<groupName(s);
+    cout<<"\t"<<setw(7)<<fixed<<setprecision(2)<<filesize(s)<<"K\t"<<getFileCreationTime(s)<<"\t"<<s1;
 }
 
 void printKFilesWithMetadata(int start, int end) {
@@ -176,25 +185,27 @@ int keypress () {
             c=getch();
             
             if(c==65)
-                return 1;
+                return 1;   //UP
             else if(c==67)
-                return 2;
+                return 2;   //RIGHT
             else if(c==66)
-                return 3;
+                return 3;   //DOWN
             else if(c==68)
-                return 4;
+                return 4;   //LEFT
         }
     }
     else if(c==107)
-        return 5;
+        return 5;   //k
     else if(c==108)
-        return 6;
-    else if(c==105)
-        return 7;
-    else if(c==68)
-        return 8;
+        return 6;   //l
+    else if(c==104)
+        return 7;   //h
+    else if(c==127)
+        return 8;   //bsp
     else if(c==10)
-        return 9;
+        return 9;   //enter
+    else if(c==58)
+        return 10;  //colon
     return 0;
 }
 
@@ -228,27 +239,148 @@ void enableScrolling(int list_start, int list_end, int start, int end) {
             cursorTracker++;
             printKFilesWithMetadata(start, end);
         }
-        else if(x==9)
-            break;
+        else if(x==9) {
+            if(!isFile[cursorTracker]) {
+                if(currentDir[cursorTracker]==back.top()+"/..") {
+                    if(back.top()=="")
+                        continue;
+
+                    int pos = back.top().find_last_of("/");
+                    string sub = back.top().substr(0 , pos);
+
+                    back.push(sub); 
+                    normal_mode(back.top()+"/");
+                    continue; 
+                } 
+                else if(currentDir[cursorTracker]==back.top()+"/.") 
+                    continue;
+                back.push(currentDir[cursorTracker]);   
+                normal_mode(back.top()+"/");
+            }
+            else {
+                int n=currentDir[cursorTracker].length();
+                char filename[n+1];
+                strcpy(filename, currentDir[cursorTracker].c_str());
+         
+                int pid = fork();
+                if (pid == 0) {
+                    execl("/usr/bin/xdg-open", "xdg-open", filename, (char *)0);
+                    exit(1);
+                }
+            }
+        }
+        else if(x==2) {
+            if(!Forward.empty()) {
+                back.push(Forward.top());
+                Forward.pop();
+                normal_mode(back.top()+"/");
+            }
+        }
+        else if(x==4) {
+            if(back.size()>1) {
+                Forward.push(back.top());
+                back.pop();
+                normal_mode(back.top()+"/");
+            }
+        }
+        else if(x==8) {
+
+            if(back.top()=="")
+                continue;
+            int pos = back.top().find_last_of("/");
+            string sub = back.top().substr(0 , pos);
+
+            while(!back.empty())
+                back.pop();
+            while(!Forward.empty())
+                Forward.pop();
+            back.push(sub);
+            normal_mode(sub+"/");
+        }
+        else if(x==7) {
+            back.push("/home");
+            normal_mode(back.top()+"/");
+        }
+        else if(x==10) {
+            command_mode();
+        }
     }
 }
 
 void normal_mode(string s) {
-
     listFiles(s);
 
-    int start=0, end=19;
+    int start=0, end;
+    end=(currentDir.size()-1 > 19 ? 19:currentDir.size()-1);
     printKFilesWithMetadata(start, end);
-    enableScrolling(0, currentDir.size(), start, end);
+    enableScrolling(0, currentDir.size()-1, start, end);
+}
+
+void create_dir(string dest, string name) {
+    string sdir=dest+'/'+name;
+    int n=sdir.length();
+    char dirname[n+1];
+    strcpy(dirname, sdir.c_str());
+    mkdir(dirname, 0777);
+}
+
+void create_file(string dest, string name) {
+    // if dest last char = '/'
+    string sfile=dest+'/'+name;
+    int n=sfile.length();
+    char filename[n+1];
+    strcpy(filename, sfile.c_str());
+    ofstream file(filename);
+    file.close();
+}
+
+void Goto(string path) {
+    current_path(path);
+}
+
+void identifyCall(string command) {
+    int pos = command.find_first_of(" ");
+    string call = command.substr(0, pos);
+    if (call=="create_file") {
+        string s = command.substr(pos+1);
+        int k = s.find_first_of(" ");
+        
+        create_file(s.substr(k+1), s.substr(0, k));
+    }
+    else if(call == "create_dir") {
+        string s = command.substr(pos+1);
+        int k = s.find_first_of(" ");
+
+        create_dir(s.substr(k+1), s.substr(0,k));
+    }
+    else if(call == "goto") {
+        Goto(command.substr(pos+1));
+    }
+    
+}
+
+void command_mode() {
+    cout << "\033[2J\033[9999;1H";  //place cursor at bottom of window
+    string command="";
+    char c;
+
+    do {
+        fflush(stdout);
+        c=getch();
+        cout<<c;
+        command += c;
+    } while(c!=10);
+
+    command = command.substr(0, command.length()-1);  //remove endl
+    identifyCall(command);
 }
 
 int main (int argc, char* argv[]) {
-    stack<string> back, forward;
-
     char cwd[256];
     getcwd(cwd, 256);
     back.push(toString(cwd));
     
-    normal_mode(back.top());
+//    normal_mode(back.top()+"/");
+    command_mode();
     return 0;
 }
