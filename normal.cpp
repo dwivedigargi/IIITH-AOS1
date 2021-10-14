@@ -455,21 +455,32 @@ void Copy(string command, int pos) {
     string dest = left.substr(pos1+1);
 
     string sources = left.substr(0, pos1);
-    int posSor = sources.find_first_of(" ");
-    string source = sources.substr(0, posSor); 
-    // EK SE ZYADA SOURCES KE LIYE LOOP LAGAO
-    string par = ".";
-    DIR* dir = opendir(par.c_str());
-    struct dirent* entity;
-    entity = readdir(dir);
-    while(entity->d_name!=source)
+    while(!sources.empty()) {
+        cout << "Stuck " <<endl;
+        int posSor = sources.find_first_of(" ");
+        string source = sources.substr(0, posSor); 
+        sources = sources.substr(posSor+1);
+        
+        string par = ".";
+        DIR* dir = opendir(par.c_str());
+        struct dirent* entity;
         entity = readdir(dir);
-    
-    if (entity->d_type==4){
-        copyOneDir(source, dest);
-    }
-    else{
-        copyOneFile(source, dest);
+        while(entity!=NULL && entity->d_name!=source)
+            entity = readdir(dir);
+        if(entity==NULL) {
+            cerr << "Source "<< source <<" not found" << endl;
+            continue;
+        }
+        
+        if (entity->d_type==4){
+            copyOneDir(source, dest);
+            }
+        else{
+            copyOneFile(source, dest);
+            }
+        closedir(dir);
+        if(source == sources)
+            break;
     }
 }
 
@@ -488,6 +499,61 @@ void Rename(string command, int pos) {
     strcpy(nNameC, newName.c_str());
 
     rename(oNameC, nNameC);    
+}
+
+int remove_directory(const char *path) {
+   DIR *d = opendir(path);
+   size_t path_len = strlen(path);
+   int r = -1;
+
+   if (d) {
+      struct dirent *p;
+
+      r = 0;
+      while (!r && (p=readdir(d))) {
+          int r2 = -1;
+          char *buf;
+          size_t len;
+
+          /* Skip the names "." and ".." as we don't want to recurse on them. */
+          if (!strcmp(p->d_name, ".") || !strcmp(p->d_name, ".."))
+             continue;
+
+          len = path_len + strlen(p->d_name) + 2; 
+          buf = (char*)malloc(len);
+
+          if (buf) {
+             struct stat statbuf;
+
+             snprintf(buf, len, "%s/%s", path, p->d_name);
+             if (!stat(buf, &statbuf)) {
+                if (S_ISDIR(statbuf.st_mode))
+                   r2 = remove_directory(buf);
+                else
+                   r2 = unlink(buf);
+             }
+             free(buf);
+          }
+          r = r2;
+      }
+      closedir(d);
+   }
+
+   if (!r)
+      r = rmdir(path);
+
+   return r;
+}
+
+ void delete_file(string path)
+{
+    char Path[100];
+        strcpy(Path, path.c_str());
+    int fd=remove(Path);
+        if(fd==-1){
+            cout<<"error in deleting file "<<endl;
+            exit(0);
+        }
 }
 
 void identifyCall(string command) {
@@ -518,6 +584,13 @@ void identifyCall(string command) {
     else if(call == "move") {
         // Fill in
     }
+    else if(call == "delete_file") {
+        delete_file(command.substr(pos+1));
+    }
+    else if(call == "delete_dir") {
+        int a = remove_directory((command.substr(pos+1)).c_str());
+    }
+        
 }
 
 void command_mode() {
@@ -525,9 +598,15 @@ void command_mode() {
     string command="";
     char c;    
 
+    bool flag = 0;
+
     do {
         fflush(stdout);
         c=getch();
+        if (!flag && c=='q'){
+            exit(0);
+        }
+        flag = 1;
         if ( c==127 )
             {
                 command = command.substr(0, command.length()-1);
@@ -538,12 +617,15 @@ void command_mode() {
             cout<<c;
             command += c;
         }
-    } while(c!=10);
+    } while(c!=10 && c!=27);
+
+    if(c==27)
+        normal_mode(back.top()+"/");
 
     command = command.substr(0, command.length()-1);  //remove endl
-    identifyCall("copy helloTest ..");
+    identifyCall(command);
     // command = "goto ./helloTest"; identifyCall(command);
-//    command_mode();
+    command_mode();
 }
 
 int main () {
@@ -551,7 +633,7 @@ int main () {
     getcwd(cwd, 256);
     back.push(toString(cwd));
     
-//    normal_mode(back.top()+"/");
+    normal_mode(back.top()+"/");
     command_mode();
     return 0;
 }
