@@ -6,7 +6,7 @@
 #include<stdlib.h>
 #include<pwd.h>
 #include<grp.h>
-#include<experimental/filesystem>
+#include<filesystem>
 #include<termios.h>
 #include<cstddef>
 #include<fstream>
@@ -327,18 +327,171 @@ void create_dir(string dest, string name) {
 void create_file(string dest, string name) {
     // if dest last char = '/'
     string sfile=dest+'/'+name;
+    if (sfile[0]=='~')
+        {
+            sfile = "/home" + sfile.substr(1);
+        }
     int n=sfile.length();
     char filename[n+1];
     strcpy(filename, sfile.c_str());
     ofstream file(filename);
+    if(file)
+        ;
+    else{
+        cout << "Unable to create file at given location" << sfile;
+        exit(0);
+    } 
+    chmod(filename, S_IRUSR|S_IWUSR);
     file.close();
 }
 
 void Goto(string path) {
-    current_path(path);
+    int n=path.length();
+    char pathc[n+1];
+    strcpy(pathc, path.c_str());
+    chdir(pathc);
+}
+
+void moveOneFile (string file, string destination) {
+    int n = file.length();
+    char filename[n+1];
+    strcpy(filename, file.c_str()); //char * of file
+
+    string destprime = destination + "/" + file;
+    int nprime = destprime.length();
+    char dest[nprime+1];
+    strcpy(dest, destprime.c_str());
+
+    rename(filename, dest);
+}
+
+void copyOneFile (string file, string destination) { //helloTest/aaya.txt, aaya.txt
+    int k = file.find_last_of("/");// k = 9
+    string file_name; 
+    if (k != string::npos)
+        file_name = file.substr(k+1); // file = aaya.txt
+    else
+        file_name = file;
+
+    int n = file.length();
+    char filename[n+1];
+    strcpy(filename, file.c_str()); //char * of file
+
+    // int pos = file.find_last_of("/");
+    // if(pos!=string::npos) {
+    //     file = file.substr(pos+1);
+    // }
+
+    string destprime = destination + "/" + file_name; //full path of (not yet) copied file
+    int nprime = destprime.length();
+    char dest[nprime+1];
+    strcpy(dest, destprime.c_str()); //char * of full path of (not yet) copied file
+
+    ifstream infile(filename);
+    ofstream outfile(dest);
+
+    string line;
+    if (infile && outfile) {
+        while (getline(infile, line)) {
+            outfile<<line<<endl;
+        }
+    }
+    else if (!infile){
+        cout << "!infile" <<endl;
+        cout << filename << endl;
+    }
+    else{
+        cout << "!outfile " << dest << endl;
+    }
+    infile.close();
+    outfile.close();
+}
+
+void copyOneDir(string source, string dest) {  
+    cout<<source<<endl<<dest<<endl;
+    int k = source.find_last_of("/");
+    string curr_file_name; 
+    if(k!=string::npos)
+        curr_file_name = source.substr(k+1); // insideHelloTest
+    else
+        curr_file_name = source;
+
+    create_dir(dest, curr_file_name);
+    string inSource = "./"+source; // ->  ./helloTest
+
+    int n=inSource.length();
+    char dirnamec[n+1];
+    strcpy(dirnamec, inSource.c_str());
+    DIR* dir = opendir(dirnamec);   // inside helloTest
+    if (dir==NULL) {
+        return; 
+    }
+    char cwd[256];
+    getcwd(cwd, 256);
+    char dot[] = ".", dd[]= "..";
+    struct dirent* entity;
+    entity = readdir(dir); // helloTest ke andar ki files read krega
+    while (entity!=NULL) {
+        // kuch mila -> 1. agar file hai -> copyonefile(new_source, new_dest) else
+        //2. dir mili -> copyonedir(new_source, new_dest)
+        if(entity->d_type==4) {
+            if(strcmp(entity->d_name,dot) == 0 || strcmp(entity->d_name, dd) == 0) {
+                cout << entity->d_name << endl;
+                entity = readdir(dir);
+                continue;
+            }
+            copyOneDir(source + "/" + toString(entity->d_name), dest+'/'+curr_file_name);
+        }
+        else {
+            copyOneFile(source+ "/"+ toString(entity->d_name), dest+'/'+curr_file_name);
+        }
+        entity = readdir(dir);
+    }
+}
+
+void Copy(string command, int pos) {
+    string left = command.substr(pos+1);
+    int pos1 = left.find_last_of(" ");    
+    string dest = left.substr(pos1+1);
+
+    string sources = left.substr(0, pos1);
+    int posSor = sources.find_first_of(" ");
+    string source = sources.substr(0, posSor); 
+    // EK SE ZYADA SOURCES KE LIYE LOOP LAGAO
+    string par = ".";
+    DIR* dir = opendir(par.c_str());
+    struct dirent* entity;
+    entity = readdir(dir);
+    while(entity->d_name!=source)
+        entity = readdir(dir);
+    
+    if (entity->d_type==4){
+        copyOneDir(source, dest);
+    }
+    else{
+        copyOneFile(source, dest);
+    }
+}
+
+void Rename(string command, int pos) {
+    string left = command.substr(pos+1);
+    int seperator = left.find_first_of(" ");
+        
+    string originalName = left.substr(0, seperator);
+    string newName = left.substr(seperator+1);
+
+    int n1=originalName.length();
+    int n2=newName.length();
+
+    char oNameC[n1+1], nNameC[n2+1];
+    strcpy(oNameC, originalName.c_str());
+    strcpy(nNameC, newName.c_str());
+
+    rename(oNameC, nNameC);    
 }
 
 void identifyCall(string command) {
+
     int pos = command.find_first_of(" ");
     string call = command.substr(0, pos);
     if (call=="create_file") {
@@ -356,26 +509,44 @@ void identifyCall(string command) {
     else if(call == "goto") {
         Goto(command.substr(pos+1));
     }
-    
+    else if(call == "copy") {
+        Copy(command, pos);
+    }
+    else if(call == "rename") {
+        Rename(command, pos);   
+    }
+    else if(call == "move") {
+        // Fill in
+    }
 }
 
 void command_mode() {
     cout << "\033[2J\033[9999;1H";  //place cursor at bottom of window
     string command="";
-    char c;
+    char c;    
 
     do {
         fflush(stdout);
         c=getch();
-        cout<<c;
-        command += c;
+        if ( c==127 )
+            {
+                command = command.substr(0, command.length()-1);
+                cout << "\033[2J\033[9999;1H";
+                cout << command;
+            }
+        else {
+            cout<<c;
+            command += c;
+        }
     } while(c!=10);
 
     command = command.substr(0, command.length()-1);  //remove endl
-    identifyCall(command);
+    identifyCall("copy helloTest ..");
+    // command = "goto ./helloTest"; identifyCall(command);
+//    command_mode();
 }
 
-int main (int argc, char* argv[]) {
+int main () {
     char cwd[256];
     getcwd(cwd, 256);
     back.push(toString(cwd));
