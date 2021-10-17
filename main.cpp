@@ -206,6 +206,8 @@ int keypress () {
         return 9;   //enter
     else if(c==58)
         return 10;  //colon
+    else if(c=='q')
+        return 11;
     return 0;
 }
 
@@ -303,6 +305,9 @@ void enableScrolling(int list_start, int list_end, int start, int end) {
         }
         else if(x==10) {
             command_mode();
+        }
+        else if(x==11) {
+            exit(0);
         }
     }
 }
